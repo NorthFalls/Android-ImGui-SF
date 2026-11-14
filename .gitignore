@@ -1,0 +1,11 @@
+build/
+.cxx/
+*.o
+*.idsig
+app/debug.keystore
+dist/arm64-v8a/
+dist/armeabi-v7a/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
