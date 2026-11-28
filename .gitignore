@@ -1,0 +1,11 @@
+build/
+build-ci/
+.cxx/
+dist/
+*.o
+*.idsig
+*.so
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

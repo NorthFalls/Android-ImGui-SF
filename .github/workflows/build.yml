@@ -1,0 +1,70 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v4.0.0 (leave empty to build without publishing)"
+        required: false
+        default: ""
+      release_name:
+        description: "Release display name, e.g. 2026-11-28 10:20:00 UTC"
+        required: false
+        default: ""
+      notes:
+        description: "Release notes text"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  binary:
+    name: arm64-v8a root host
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Android NDK
+        run: |
+          set -euo pipefail
+          NDK="$RUNNER_TEMP/ndk"
+          mkdir -p "$NDK"
+          curl -fsSL -o "$RUNNER_TEMP/ndk.zip" https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          unzip -q "$RUNNER_TEMP/ndk.zip" -d "$NDK"
+          test -f "$NDK/android-ndk-r26d/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=$NDK/android-ndk-r26d" >> "$GITHUB_ENV"
+
+      - name: Build sf-imgui.sh
+        run: ./scripts/ci_build.sh dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sf-imgui
+          path: |
+            dist/sf-imgui.sh
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Publish release
+        if: inputs.tag != '' && !startsWith(inputs.tag, 'test')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          RELEASE_NAME: ${{ inputs.release_name }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          set -euo pipefail
+          # keep exactly one release and one tag in the repository
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r t; do
+            if [ -n "$t" ]; then gh release delete "$t" --yes --cleanup-tag || true; fi
+          done
+          gh api "repos/$GITHUB_REPOSITORY/tags" --jq '.[].name' | while read -r t; do
+            if [ -n "$t" ]; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$t" || true; fi
+          done
+          printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" dist/sf-imgui.sh dist/SHA256SUMS --title "$RELEASE_NAME" --notes-file "$RUNNER_TEMP/notes.md" --target "$GITHUB_SHA" --latest
+          gh release view "$TAG" --json tagName,name,assets | head -40
